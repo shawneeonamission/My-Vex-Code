@@ -1,1 +1,472 @@
+/*----------------------------------------------------------------------------*/
+/*                                                                            */
+/*    Module:       main.cpp                                                  */
+/*    Author:       james                                                     */
+/*    Created:      Mon Aug 31 2020                                           */
+/*    Description:  V5 project                                                */
+/*                                                                            */
+/*----------------------------------------------------------------------------*/
 
+// ---- START VEXCODE CONFIGURED DEVICES ----
+// ---- END VEXCODE CONFIGURED DEVICES ----
+
+#include "vex.h"
+using namespace vex;
+
+float x,y,heading;
+
+int righterror  =  0;
+int rightlast = 0;
+int righttarget = 0;
+int rightD = 0;
+float rightPI = 0.4;
+float rightDI = 1;
+int righttotal = 0;
+int lefterror  =  0;
+int leftlast = 0;
+int lefttarget = 0;
+int leftD = 0;
+float leftPI = 0.4;
+float leftDI = 1;
+int lefttotal = 0;
+int turnerror  =  0;
+int turnlast = 0;
+int turnD = 0;
+int turntotal = 0;
+int turntarget = 0;
+float turnPI = .9;
+float turnDI = 0.6;
+int strafetarget = 0;
+float strafePI = .1;
+float strafeDI = 1;
+int strafe = 0;
+int rightpwr = 0;
+int leftpwr = 0;
+int turnpwr = 0;
+int rightmax = 0;
+int leftmax = 0;
+int turnmax = 0;
+int control = 0;
+int armtemp = 0;
+int turn = 0;
+int rightdrive = 0;
+int leftdrive = 0;
+int driveforward = 0;
+int strafecount = 0;
+// create instance of jetson class to receive location and other
+// data from the Jetson nano
+//
+ai::jetson  jetson_comms;
+
+/*----------------------------------------------------------------------------*/
+// Create a robot_link on PORT1 using the unique name robot_32456_1
+// The unique name should probably incorporate the team number
+// and be at least 12 characters so as to generate a good hash
+//
+// The Demo is symetrical, we send the same data and display the same status on both
+// manager and worker robots
+// Comment out the following definition to build for the worker robot
+#define  MANAGER_ROBOT    1
+
+#if defined(MANAGER_ROBOT)
+#pragma message("building for the manager")
+ai::robot_link       link( PORT11, "robot_32456_1", linkType::manager );
+#else
+#pragma message("building for the worker")
+ai::robot_link       link( PORT11, "robot_32456_1", linkType::worker );
+#endif
+
+//legacy wait funtction
+void wait1Msec(int time)
+{
+  vex::task::sleep(time);
+}
+void pidreset(void)
+{
+ 
+  righterror  =  0;
+rightlast = 0;
+righttarget = 0;
+rightD = 0;
+rightpwr = 0;
+
+lefterror  =  0;
+leftlast = 0;
+lefttarget = 0;
+leftD = 0;
+leftpwr = 0;
+}
+
+ void zerodrive(void)
+ {
+   RFDrive.resetRotation();
+   RRDrive.resetRotation();
+   LFDrive.resetRotation();
+   LRDrive.resetRotation();
+ }
+
+void stopdrive(void)
+{
+  righttarget = 0;
+  lefttarget = 0;
+  turntarget = 0;
+  strafetarget = 0;
+  RFDrive.stop(brakeType::brake);
+  RRDrive.stop(brakeType::brake);
+  LFDrive.stop(brakeType::brake);
+  LRDrive.stop(brakeType::brake);
+}
+int RightDrivePD(void)
+{
+  pidreset();
+ while(true)
+ {
+   Brain.Screen.clearScreen();
+   while(righttarget == 0){wait1Msec(20);}
+   //set P
+  righterror = righttarget - rightdrive;
+// set D
+rightD =righterror-rightlast;
+rightlast = righterror;
+//set final power
+righttotal = righterror*rightPI + rightD*rightDI;
+
+if(righterror > 0)
+{
+ if(righttotal > rightmax)
+{
+  rightpwr = rightmax;
+}
+else
+{
+rightpwr = righttotal;
+}
+}
+else if(righterror < 0)
+{
+ if(righttotal < -rightmax)
+ {
+   rightpwr = -rightmax;
+ }
+ else 
+ {
+   rightpwr = righttotal;
+ }
+}
+
+
+    RFDrive.spin(vex::directionType::fwd,rightpwr,vex::velocityUnits::pct);
+    RRDrive.spin(vex::directionType::fwd,rightpwr,vex::velocityUnits::pct);
+ 
+    Brain.Screen.printAt(10,20,"righttotal =" "%3.2f",rightpwr);
+
+
+
+
+
+ }
+  return(0);
+}
+int LeftDrivePD(void)
+{
+  pidreset();
+ while(true)
+ {
+   
+   while(lefttarget == 0){wait1Msec(20);}
+   //set P
+  lefterror = lefttarget - leftdrive;
+// set D
+leftD =lefterror-leftlast;
+leftlast = lefterror;
+//set final power
+lefttotal = lefterror*leftPI + leftD*leftDI;
+
+if(lefterror > 0)
+{
+ if(lefttotal > leftmax)
+{
+  leftpwr = leftmax;
+}
+else
+{
+leftpwr = lefttotal;
+}
+}
+else if(lefterror < 0)
+{
+ if(lefttotal < -leftmax)
+ {
+   leftpwr = -leftmax;
+ }
+ else 
+ {
+   leftpwr = lefttotal;
+ }
+}
+
+
+   
+    
+    LFDrive.spin(vex::directionType::fwd,leftpwr,vex::velocityUnits::pct);
+    LRDrive.spin(vex::directionType::fwd,leftpwr,vex::velocityUnits::pct);
+    Brain.Screen.printAt(30,50,"lefttotal =" "%3.2f",leftpwr);
+
+
+
+
+
+ }
+  return(0);
+}
+
+int turnPD(void)
+{
+  pidreset();
+  while(true)
+  {
+    
+   while(turntarget == 0){wait1Msec(20);}
+  
+   
+   //setting P
+   turnerror = turntarget - Gyro.rotation(rotationUnits::deg);
+   //setting D
+   turnD = turnerror + turnlast;
+   turnlast = turnerror;
+   //setting total
+   turntotal = turnerror*turnPI + turnD*turnDI;
+
+if(turnerror > 0)
+{
+ if(turntotal > turnmax)
+{
+  turnpwr = turnmax;
+}
+else
+{
+turnpwr = turntotal;
+}
+}
+else if(turnerror < 0)
+{
+ if(turntotal < -turnmax)
+ {
+   turnpwr = -turnmax;
+ }
+ else 
+ {
+   turnpwr = turntotal;
+ }
+}
+
+
+    RFDrive.spin(vex::directionType::rev,turnpwr,vex::velocityUnits::pct);
+    RRDrive.spin(vex::directionType::rev,turnpwr,vex::velocityUnits::pct);
+    LFDrive.spin(vex::directionType::fwd,turnpwr,vex::velocityUnits::pct);
+    LRDrive.spin(vex::directionType::fwd,turnpwr,vex::velocityUnits::pct);
+    Brain.Screen.printAt(10,40,"turntotal =" "%3.2f",turnpwr);
+
+
+  }
+
+  return(0);
+}
+
+
+void DriveForward(int  drivedistance,int leftpower,int rightpower)
+{
+  zerodrive();
+  pidreset();
+    righttarget = drivedistance;
+    lefttarget = drivedistance;
+    rightmax = rightpower;
+    leftmax = rightpower;
+    wait1Msec(100);
+    while((righttotal > 5) || (lefttotal> 5)){wait1Msec(20);} 
+}
+
+void DriveBackward(int  drivedistance,int leftpower,int rightpower)
+{
+  zerodrive();
+  pidreset();
+    righttarget = -drivedistance;
+    lefttarget = -drivedistance;
+    rightmax = rightpower;
+    leftmax = rightpower;
+    wait1Msec(100);
+    while((righttotal < -5) || (lefttotal < -5)){wait1Msec(20);} 
+}
+void DriveForwardOntime(int time,int leftpower,int rightpower)
+{
+  
+     RFDrive.spin(vex::directionType::fwd,rightpower,vex::velocityUnits::pct);
+   RRDrive.spin(vex::directionType::fwd,rightpower,vex::velocityUnits::pct);
+   LFDrive.spin(vex::directionType::fwd,leftpower,vex::velocityUnits::pct);
+   LRDrive.spin(vex::directionType::fwd,leftpower,vex::velocityUnits::pct);
+   wait1Msec(time);
+    RFDrive.stop();
+      RRDrive.stop();
+       LFDrive.stop();
+       LRDrive.stop();
+}
+
+void DriveBackwardOntime(int time,int leftpower,int rightpower)
+{
+  
+     RFDrive.spin(vex::directionType::rev,rightpower,vex::velocityUnits::pct);
+   RRDrive.spin(vex::directionType::rev,rightpower,vex::velocityUnits::pct);
+   LFDrive.spin(vex::directionType::rev,leftpower,vex::velocityUnits::pct);
+   LRDrive.spin(vex::directionType::rev,leftpower,vex::velocityUnits::pct);
+   wait1Msec(time);
+    RFDrive.stop();
+      RRDrive.stop();
+       LFDrive.stop();
+       LRDrive.stop();
+}
+
+void leftTurn(int rotation, int leftpower, int rightpower)
+{
+ Gyro.resetRotation();
+  righttarget = 0;
+  lefttarget = 0;
+  zerodrive();
+  turntarget = rotation;
+  turnmax = rightpower;
+     wait1Msec(100);
+    while(turntotal < -2){wait1Msec(20);}
+    Brain.Screen.printAt(10,80, " Finished Turn");
+}
+void rightTurn(int rotation,int leftpower,int rightpower)
+{
+  Gyro.resetRotation();
+  righttarget = 0;
+  lefttarget = 0;
+  zerodrive();
+  turntarget = rotation;
+  turnmax = rightpower;
+     wait1Msec(100);
+    while(turntotal > 2){wait1Msec(20);}
+
+}
+
+void GoTo(float targetx, float targety)
+{
+
+
+link.get_local_location(x, y, heading);
+  wait(100,msec);
+  Brain.Screen.printAt(20,20, " X = %f", x);
+  Brain.Screen.printAt(20,40, " Y = %f", y);
+  Brain.Screen.printAt(20,60, " H = %f", heading);
+  if(x > targetx)
+  {
+    if((heading > 270) && (heading < 90))
+    {
+      if(heading > 270)
+      {
+
+      rightTurn(-1*heading + 450,50,50);
+      }
+      else
+      {
+        rightTurn(-1*heading + 90,50,50);
+      }
+    }
+    else if((heading < 270) && (heading > 90))
+    {
+      leftTurn(heading - 90,50,50);
+    }
+    stopdrive();
+    }
+
+    else if(x < targetx)
+  {
+    if((heading > 270) && (heading < 90))
+    {
+      if(heading > 270)
+      {
+
+      leftTurn(heading + 90,50,50);
+      }
+      else
+      {
+        leftTurn(heading -270,50,50);
+      }
+    }
+    else if((heading < 270) && (heading > 90))
+    {
+      rightTurn(-1*heading + 270,50,50);
+    }
+    stopdrive();
+  }
+  Brain.Screen.printAt(20,80, "done");
+
+}
+void PrintLocation(void){
+    static MAP_RECORD       local_map;
+   int n = 0;
+  while(true){
+        jetson_comms.get_data( &local_map );
+        jetson_comms.request_map();
+  link.get_local_location(x, y, heading);
+  wait(100,msec);
+  Brain.Screen.printAt(20,20, " X = %f", x);
+  Brain.Screen.printAt(20,40, " Y = %f", y);
+  Brain.Screen.printAt(20,60, " H = %f", heading);
+  Brain.Screen.printAt(20,140,"n = ",)
+  n++;
+  wait1Msec(66);
+}
+}
+
+/*----------------------------------------------------------------------------*/
+
+int main() {
+    // Initializing Robot Configuration. DO NOT REMOVE!
+    vexcodeInit();
+
+    // local storage for latest data from the Jetson Nano
+    static MAP_RECORD       local_map;
+
+    // RUn at about 15Hz
+    int32_t loop_time = 66;
+
+    // start the status update display
+   
+
+    // print through the controller to the terminal (vexos 1.0.12 is needed)
+    // As USB is tied up with Jetson communications we cannot use
+    // printf for debug.  If the controller is connected
+    // then this can be used as a direct connection to USB on the controller
+    // when using VEXcode.
+    //
+    //FILE *fp = fopen("/dev/serial2","wb");
+             //  jetson_comms.request_map();
+    
+  PrintLocation();
+Brain.Screen.printAt(10,120,"done");
+    while(1) {
+        // get last map data
+        jetson_comms.get_data( &local_map );
+
+        // set our location to be sent to partner robot
+        link.set_remote_location( local_map.pos.x, local_map.pos.y, local_map.pos.az );
+
+        //fprintf(fp, "%.2f %.2f %.2f\n", local_map.pos.x, local_map.pos.y, local_map.pos.az  );
+
+        // request new data        
+        jetson_comms.request_map();
+
+           
+
+
+
+
+
+  
+
+        // Allow other tasks to run
+        this_thread::sleep_for(loop_time);
+    }
+}
