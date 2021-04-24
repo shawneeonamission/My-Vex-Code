@@ -1,0 +1,2321 @@
+//Include Necessary Files
+#include "vex.h"
+#include <vex_vision.h>
+#include "robot-config.h"
+#include "FrontVision.h"
+
+// use the vex namespace
+using namespace vex;
+
+//declare the Competition
+vex::competition Competition;
+
+//Define waitUntil to use it later
+#define waitUntil(condition)                                                   \
+  do {                                                                         \
+    wait(5, msec);                                                             \
+  } while (!(condition))
+
+#define repeat(iterations)                                                     \
+  for (int iterator = 0; iterator < iterations; iterator++)
+
+// define global instances of motors and other devices
+vex::motor RFDrive = vex::motor(vex::PORT9,true);
+vex::motor RRDrive = vex::motor(vex::PORT10);
+vex::motor LFDrive = vex::motor(vex::PORT2);
+vex::motor LRDrive = vex::motor(vex::PORT5,true);
+vex::motor Lintake = vex::motor(vex::PORT3);
+vex::motor Rintake = vex::motor(vex::PORT8,true);
+motor Convey = motor(PORT4, ratio6_1);
+motor Punch = motor(PORT7,true);
+vex::controller Controller1 = vex::controller();
+vex::timer Timer1 = vex::timer();
+vex::inertial Gyro = vex::inertial(vex::PORT11);
+vex::rotation LRot = rotation(PORT12);
+vex::rotation BRot = rotation(PORT13);
+vex::rotation RRot = rotation(PORT14);
+vex::distance BackDie = distance(PORT15);
+vex::distance Diestance = distance(PORT19);
+
+
+extern line top;
+extern line mid;
+extern line bot;
+extern bumper Andrew;
+extern led ButtonLED;
+
+//placeholder variables
+int punch = 0;
+int deadzone = 15;
+int arm = 0;
+bool fin = 0;
+int pendingconfirm = 0;
+//Testing Mode to disable menu--------------------------------------------------------------------------------------
+int testing = 0;
+//physical atribute variables
+float RFStrafe = 0;
+float RRStrafe = 0;
+float LFStrafe = 0;
+float LRStrafe = 0;
+int TOP = 0;
+int MID = 0;
+int BOT = 0;
+int POS = 0;
+int GyroSave = 0;
+int drive = 0;
+
+//PID variables
+int righterror  =  0;
+int rightlast = 0;
+int righttarget = 0;
+int rightD = 0;
+float rightPI = 0.4;
+float rightDI = 1;
+int righttotal = 0;
+int lefterror  =  0;
+int leftlast = 0;
+int lefttarget = 0;
+int leftD = 0;
+float leftPI = 0.4;
+float leftDI = 1;
+int lefttotal = 0;
+int turnerror  =  0;
+int turnlast = 0;
+int turnD = 0;
+int turntotal = 0;
+int turntarget = 0;
+float turnPI = .3;
+float turnDI = 0.5;
+int strafetarget = 0;
+float strafePI = .1;
+float strafeDI = 1;
+int strafe = 0;
+int rightpwr = 0;
+int leftpwr = 0;
+int turnpwr = 0;
+int rightmax = 0;
+int leftmax = 0;
+int turnmax = 0;
+int control = 0;
+int armtemp = 0;
+int turn = 0;
+int rightdrive = 0;
+int leftdrive = 0;
+int driveforward = 0;
+int strafecount = 0;
+float targetcorrect = 0;
+float pwr = 0;
+bool correctdone = false;
+
+//menu variables
+int boxes = 3;
+int boxsize = 75;
+int startx = 5;
+int starty = 20;
+int separation = 5;
+int endx = 0;
+int endy = 0;
+int wordx = 2;
+int wordy = 3;
+int count = 0;
+
+bool turbo = false;
+
+//legacy wait funtction
+void wait1Msec(int time)
+{
+  vex::task::sleep(time);
+}
+ 
+//Mecanum drive task------------------------------------------------------------------------------------------------------------
+int joysticks()
+{
+ 
+  while(true)
+  {
+    //the variables used to represent the joysticks
+    int left = Controller1.Axis3.position(vex::percent);
+int right = Controller1.Axis2.position(vex::percent);
+
+if(turbo == false)
+{
+   RFDrive.setMaxTorque(.75,torqueUnits::Nm);
+  RRDrive.setMaxTorque(.75,torqueUnits::Nm);
+  LFDrive.setMaxTorque(.75,torqueUnits::Nm);
+  LRDrive.setMaxTorque(.75,torqueUnits::Nm);
+}
+else
+{
+   RFDrive.setMaxTorque(1.5,torqueUnits::Nm);
+  RRDrive.setMaxTorque(1.5,torqueUnits::Nm);
+  LFDrive.setMaxTorque(1.5,torqueUnits::Nm);
+  LRDrive.setMaxTorque(1.5,torqueUnits::Nm);
+}
+
+//the math used to figure out what power to give the drive motors
+turn =    (right - left) * 0.5;
+driveforward = (right + left) * 0.5;
+left = abs(left) > deadzone ? left : 0;
+right = abs(right) > deadzone ? right : 0;
+
+//final math to figure out the power for each
+RFDrive.spin(vex::forward,right*1, vex::percent);
+LFDrive.spin(vex::forward,  left*1, vex::percent);
+RRDrive.spin(vex::forward,  right*1, vex::percent);
+LRDrive.spin(vex::forward, left*1, vex::percent);
+wait1Msec(20);
+   
+  }
+}
+
+//Auton Variable
+int auton = 0;
+int side = 0;
+
+const char *autonModes[7];
+bool resetmenu = false;
+//funtion to continue to the next box
+void nextbox( void )
+{
+  startx = startx + endx;
+   startx = startx + separation;
+   wordx = wordx + separation*2.5;
+   
+   if((count == 2) ||(count == 3))
+   {
+     Brain.Screen.setPenColor(white);
+   }
+if(count == 4)
+{
+  Brain.Screen.setPenColor(red);
+}
+if((count == 7) || (count == 8))
+   {
+     Brain.Screen.setPenColor(purple);
+   }
+   if(count == 9)
+   {
+     Brain.Screen.setPenColor(blue);
+   }
+   
+   count = count + 1;
+}
+//the function used on a testing auton to make sure you don't accidentally select it during a tournament
+void areyousure( void )
+{
+  //makes the entire screen red
+  Brain.Screen.setFillColor(red);
+  Brain.Screen.clearScreen(red);
+  //sets the pen width and font
+  Brain.Screen.setPenWidth(5);
+  Brain.Screen.setFont(monoXL);
+  //sets the pen color to black
+  Brain.Screen.setPenColor(black);
+  //writes "R U Sure?" at row 2 column 4
+  Brain.Screen.setCursor(2,4);
+  Brain.Screen.print("R U Sure?");
+  //draws a green box
+  Brain.Screen.drawRectangle(10,100,200,100);
+  Brain.Screen.setFillColor(green);
+  //draws a red box
+  Brain.Screen.drawRectangle(250,100,200,100);
+  Brain.Screen.setFillColor(red);
+  Brain.Screen.setFont(monoL);
+  //writes "Yee" at 5,2
+  Brain.Screen.setCursor(5,2);
+  Brain.Screen.print("Yee");
+  //writes "Take me back" at 5,18
+  Brain.Screen.setFillColor(green);
+  Brain.Screen.setCursor(5,18);
+  Brain.Screen.print("Take me back");
+   Brain.Screen.setFont(monoM);
+   wait(400,msec);
+   //waits until the screen is pressed
+   while(!Brain.Screen.pressing()){}
+  while(Brain.Screen.pressing()){}
+  //checks which button was pressed
+  if((Brain.Screen.xPosition() > 10) && (Brain.Screen.xPosition() < 10 + 200) && (Brain.Screen.yPosition() > 100) && (Brain.Screen.yPosition() < 100 + 100))
+  {
+   resetmenu = false;
+    
+  }
+if((Brain.Screen.xPosition() > 250) && (Brain.Screen.xPosition() < 250 + 200) && (Brain.Screen.yPosition() > 100) && (Brain.Screen.yPosition() < 100 + 100))
+  {
+   resetmenu = true;
+    
+  }
+}
+
+//the function used to Calibrate the Inertial Sensor
+void GyroCalibrate( void )
+{
+  ButtonLED.off();
+  Brain.Screen.setFillColor(white);
+  Brain.Screen.setPenColor(red);
+   Brain.Screen.setPenColor(red);
+    Brain.Screen.drawRectangle(390,100,100,60);
+    Brain.Screen.setFont(mono15);
+  Brain.Screen.setCursor(8,57);
+   Brain.Screen.print("Gyro is");
+    Brain.Screen.setCursor(9,57);
+   Brain.Screen.print("Calibrating");
+Gyro.calibrate();
+
+Brain.Screen.setPenColor(orange);
+  while(Gyro.isCalibrating())
+  {
+    
+    wait1Msec(20);
+  }
+  wait1Msec(200);
+  ButtonLED.on();
+   Brain.Screen.setCursor(8,57);
+   Brain.Screen.print("       ");
+      Brain.Screen.setCursor(9,57);
+   Brain.Screen.print("          ");
+   Brain.Screen.setPenColor(green);
+ Brain.Screen.drawRectangle(390,100,100,60);
+    Brain.Screen.setCursor(8,57);
+   Brain.Screen.print("Gyro is");
+    Brain.Screen.setCursor(9,57);
+   Brain.Screen.print("Calibrated");
+
+}
+
+int AndrewButton()
+{
+
+  while(true)
+  {
+    if(Andrew.pressing())
+    {
+      GyroCalibrate();
+    }
+       
+    if(Brain.Screen.pressing())
+    {
+      waitUntil(!Brain.Screen.pressing());
+      if((Brain.Screen.xPosition() > 390) && (Brain.Screen.xPosition() < 490) && (Brain.Screen.yPosition() > 100) && (Brain.Screen.yPosition() < 160))
+      {
+        GyroCalibrate();
+      }
+      if((Brain.Screen.xPosition() > 390) && (Brain.Screen.xPosition() < 490) && (Brain.Screen.yPosition() > 175) && (Brain.Screen.yPosition() < 235))
+      {
+        resetmenu = true;
+      }
+    }
+
+    wait1Msec(20);
+  }
+}
+
+//the task that shows a menu during pre auton
+int autonselect()
+{
+  resetmenu = false;
+  
+autonModes[0] = "DN\0";
+    autonModes[1] = "Red Left 1\0";
+    autonModes[2] = "Red Left 2\0";
+    autonModes[3] = "Red Win Point";
+    autonModes[4] = "Blue Left 1\0";
+    autonModes[5] = "Blue Left 2\0";
+    autonModes[6] = "Blue Win Point\0";
+  if(Brain.SDcard.isInserted())
+  {
+
+  Brain.Screen.drawImageFromFile("Left Main.png", 0,0);
+  auton = 0;
+  while(true){
+
+    
+    
+    waitUntil(Brain.Screen.pressing());
+   waitUntil(!Brain.Screen.pressing());
+  if(Brain.Screen.xPosition() < 150) 
+      {
+ 
+        if((Brain.Screen.yPosition() > 10) && (Brain.Screen.yPosition() < 50))
+        {
+        Brain.Screen.drawImageFromFile("Left Red 1 Goal.png", 0,0);
+        pendingconfirm = 1;
+        Brain.Screen.setCursor(4,57);
+Brain.Screen.print(pendingconfirm);
+        }
+        
+        else if((Brain.Screen.yPosition() > 50) && (Brain.Screen.yPosition() < 90))
+        {
+      Brain.Screen.drawImageFromFile("Left Red 2 Goal.png", 0,0);
+      pendingconfirm = 2;
+      Brain.Screen.setCursor(4,57);
+Brain.Screen.print(pendingconfirm);
+        }
+        else if((Brain.Screen.yPosition() > 90) && (Brain.Screen.yPosition() < 120))
+        {
+      Brain.Screen.drawImageFromFile("Left Red Win Point.png", 0,0);
+      pendingconfirm = 3;
+      Brain.Screen.setCursor(4,57);
+Brain.Screen.print(pendingconfirm);
+        }
+        else if((Brain.Screen.yPosition() > 120) && (Brain.Screen.yPosition() < 160))
+        {
+      Brain.Screen.drawImageFromFile("Left Blue 1 Goal.png", 0,0);
+      pendingconfirm = 4;
+      Brain.Screen.setCursor(4,57);
+Brain.Screen.print(pendingconfirm);
+        }
+        else if((Brain.Screen.yPosition() > 160) && (Brain.Screen.yPosition() < 200))
+        {
+      Brain.Screen.drawImageFromFile("Left Blue 2 Goal.png", 0,0);
+
+      pendingconfirm = 5;
+      Brain.Screen.setCursor(4,57);
+Brain.Screen.print(pendingconfirm);
+        }
+        else if((Brain.Screen.yPosition() > 200) && (Brain.Screen.yPosition() < 240))
+        {
+      Brain.Screen.drawImageFromFile("Left Blue Win Point.png", 0,0);
+      pendingconfirm = 6;
+      Brain.Screen.setCursor(4,57);
+Brain.Screen.print(pendingconfirm);
+        }
+
+
+      }
+
+    if((Brain.Screen.xPosition() > 150) && (pendingconfirm > 0))
+    {
+          
+        auton = pendingconfirm;
+  task adnerew(AndrewButton);
+    Brain.Screen.clearScreen(white);
+    Brain.Screen.drawImageFromFile("Cougar.png", 0,0);
+    Brain.Screen.setFillColor(white);
+        Brain.Screen.setFont(mono15);
+    Brain.Screen.setPenColor(black);
+Brain.Screen.drawRectangle(390,25,100,60);
+Brain.Screen.setCursor(3,57);
+Brain.Screen.print(autonModes[auton]);
+Brain.Screen.setCursor(4,57);
+Brain.Screen.print(pendingconfirm);
+
+
+   Brain.Screen.setPenColor(red);
+    Brain.Screen.drawRectangle(390,100,100,60);
+
+  Brain.Screen.setCursor(8,57);
+   Brain.Screen.print("Calibrate");
+    Brain.Screen.setCursor(9,57);
+   Brain.Screen.print("Gyro");
+   Brain.Screen.drawRectangle(390,175,100,60);
+    Brain.Screen.setFont(mono15);
+  Brain.Screen.setCursor(13,57);
+   Brain.Screen.print("Reset");
+    Brain.Screen.setCursor(14,57);
+   Brain.Screen.print("Menu");
+       
+       
+        return(0);
+      
+      
+    }
+  
+  task::sleep(20);
+  }
+  }
+  else
+  {
+    Brain.Screen.clearScreen(red);
+
+  }
+  return(0);
+}
+
+//function to reset the PID tasks
+void pidreset(void)
+{
+ 
+  righterror  =  0;
+rightlast = 0;
+righttarget = 0;
+rightD = 0;
+rightpwr = 0;
+
+lefterror  =  0;
+leftlast = 0;
+lefttarget = 0;
+leftD = 0;
+leftpwr = 0;
+}
+
+
+//a function
+void clearcontrollerscreen(void)
+{
+  Controller1.Screen.clearScreen();
+}
+ void zerodrive(void)
+ {
+   RFDrive.resetRotation();
+   RRDrive.resetRotation();
+   LFDrive.resetRotation();
+   LRDrive.resetRotation();
+   LRot.resetPosition();
+   RRot.resetPosition();
+   BRot.resetPosition();
+ }
+
+void stopdrive(void)
+{
+  righttarget = 0;
+  lefttarget = 0;
+  turntarget = 0;
+  strafetarget = 0;
+  RFDrive.stop(brakeType::brake);
+  RRDrive.stop(brakeType::brake);
+  LFDrive.stop(brakeType::brake);
+  LRDrive.stop(brakeType::brake);
+}
+int controllerlcd(void)
+{
+    clearcontrollerscreen();
+    int roll = 0;
+  while(true)
+  {
+    Timer1.clear();
+    armtemp = Punch.temperature(temperatureUnits::fahrenheit);
+    arm = Convey.temperature(temperatureUnits::fahrenheit);
+      control = RFDrive.temperature(vex::temperatureUnits::fahrenheit) + RRDrive.temperature(vex::temperatureUnits::fahrenheit) + LFDrive.temperature(vex::temperatureUnits::fahrenheit) + LRDrive.temperature(vex::temperatureUnits::fahrenheit);
+      control = control/4;
+      roll = Rintake.temperature(temperatureUnits::fahrenheit) + Lintake.temperature(temperatureUnits::fahrenheit);
+      roll = roll/2;
+      clearcontrollerscreen();
+      Controller1.Screen.setCursor(1,1);
+     Controller1.Screen.print("bat=%d",Brain.Battery.capacity());
+      Controller1.Screen.newLine();
+      Controller1.Screen.print("%3.0f",LFDrive.temperature(vex::temperatureUnits::fahrenheit));
+      Controller1.Screen.setCursor(2,5);
+      Controller1.Screen.print("%3.0f",RFDrive.temperature(vex::temperatureUnits::fahrenheit));
+      Controller1.Screen.setCursor(3,1);
+      Controller1.Screen.print("%3.0f",LRDrive.temperature(vex::temperatureUnits::fahrenheit));
+      Controller1.Screen.setCursor(3,5);
+      Controller1.Screen.print("%3.0f",RRDrive.temperature(vex::temperatureUnits::fahrenheit));
+      Controller1.Screen.setCursor(1,8);
+      Controller1.Screen.print("pnchtmp=%d",armtemp);
+      Controller1.Screen.setCursor(2,8);
+      Controller1.Screen.print("Cnvytmp=%d",arm);
+      Controller1.Screen.setCursor(3,10);
+      Controller1.Screen.print("rolltmp=%d",roll);
+  
+
+      
+      
+      wait1Msec(5);
+      //controllerlcd
+      
+  }
+ 
+}
+
+
+int visionsensor()
+{
+
+  while(true)
+  {
+    Brain.Screen.clearScreen();
+    if(TOP == 1)
+    {
+    Vision20.takeSnapshot(Vision20__RED_BALL,1);
+       if(Vision20.largestObject.exists)
+   {
+     Brain.Screen.printAt(10,20,"Top vision sees red");
+     TOP = 2;
+   }
+    Vision20.takeSnapshot(Vision20__BLUE_BALL,1);
+       if(Vision20.largestObject.exists)
+   {
+     Brain.Screen.printAt(10,20,"Top vision sees blue");
+     TOP = 1;
+   }
+    }
+    
+    wait1Msec(100);
+  }
+}
+
+void pre_auton( void ) {
+  
+  if((!Competition.isEnabled()) && (testing == 0))
+  {
+   resetmenu = true;
+   }
+   else
+   {
+     GyroCalibrate();
+  
+   }
+   
+   // All activities that occur before the competition starts
+  // All activities that occur before the competition starts
+  // Example: clearing encoders, setting servo positions, ...
+  
+}
+
+
+
+int RightDrivePD(void)
+{
+  pidreset();
+ while(true)
+ {
+   Brain.Screen.clearScreen();
+   while(righttarget == 0){wait1Msec(20);}
+   //set P
+  righterror = righttarget - rightdrive;
+// set D
+rightD =righterror-rightlast;
+rightlast = righterror;
+//set final power
+righttotal = righterror*rightPI + rightD*rightDI;
+
+if(righterror > 0)
+{
+ if(righttotal > rightmax)
+{
+  rightpwr = rightmax;
+}
+else
+{
+rightpwr = righttotal;
+}
+}
+else if(righterror < 0)
+{
+ if(righttotal < -rightmax)
+ {
+   rightpwr = -rightmax;
+ }
+ else 
+ {
+   rightpwr = righttotal;
+ }
+}
+
+    RFDrive.spin(vex::directionType::fwd,rightpwr,vex::velocityUnits::pct);
+    RRDrive.spin(vex::directionType::fwd,rightpwr,vex::velocityUnits::pct);
+ 
+    Brain.Screen.printAt(10,20,"righttotal =" "%3.2f",rightpwr);
+
+
+
+
+
+ }
+  return(0);
+}
+int LeftDrivePD(void)
+{
+  pidreset();
+ while(true)
+ {
+   
+   while(lefttarget == 0){wait1Msec(20);}
+   //set P
+  lefterror = lefttarget - leftdrive;
+// set D
+leftD =lefterror-leftlast;
+leftlast = lefterror;
+//set final power
+lefttotal = lefterror*leftPI + leftD*leftDI;
+
+if(lefterror > 0)
+{
+ if(lefttotal > leftmax)
+{
+  leftpwr = leftmax;
+}
+else
+{
+leftpwr = lefttotal;
+}
+}
+else if(lefterror < 0)
+{
+ if(lefttotal < -leftmax)
+ {
+   leftpwr = -leftmax;
+ }
+ else 
+ {
+   leftpwr = lefttotal;
+ }
+}
+
+
+   
+    
+    LFDrive.spin(vex::directionType::fwd,leftpwr,vex::velocityUnits::pct);
+    LRDrive.spin(vex::directionType::fwd,leftpwr,vex::velocityUnits::pct);
+    Brain.Screen.printAt(30,50,"lefttotal =" "%3.2f",leftpwr);
+
+
+
+
+
+ }
+  return(0);
+}
+
+int StrafePD(void)
+{
+  pidreset();
+ while(Competition.isAutonomous())
+ {
+   while(strafetarget == 0){
+     strafecount = 0;
+     wait1Msec(20);}
+
+
+
+  wait1Msec(20);
+ }
+  return(0);
+}
+
+int turnPD(void)
+{
+  pidreset();
+  while(true)
+  {
+    
+   while(turntarget == 0){wait1Msec(20);}
+  
+   
+   //setting P
+   turnerror = turntarget - Gyro.rotation(rotationUnits::deg);
+   //setting D
+   turnD = turnerror + turnlast;
+   turnlast = turnerror;
+   //setting total
+   turntotal = turnerror*turnPI + turnD*turnDI;
+
+if(turnerror > 0)
+{
+ if(turntotal > turnmax)
+{
+  turnpwr = turnmax;
+}
+else
+{
+turnpwr = turntotal;
+}
+}
+else if(turnerror < 0)
+{
+ if(turntotal < -turnmax)
+ {
+   turnpwr = -turnmax;
+ }
+ else 
+ {
+   turnpwr = turntotal;
+ }
+}
+
+
+    RFDrive.spin(vex::directionType::rev,turnpwr,vex::velocityUnits::pct);
+    RRDrive.spin(vex::directionType::rev,turnpwr,vex::velocityUnits::pct);
+    LFDrive.spin(vex::directionType::fwd,turnpwr,vex::velocityUnits::pct);
+    LRDrive.spin(vex::directionType::fwd,turnpwr,vex::velocityUnits::pct);
+    Brain.Screen.printAt(10,40,"turntotal =" "%3.2f",turnpwr);
+
+
+  }
+
+  return(0);
+}
+
+
+void drivecoast()
+{
+
+  RFDrive.stop(brakeType::coast);
+  RRDrive.stop(brakeType::coast);
+  LFDrive.stop(brakeType::coast);
+  LRDrive.stop(brakeType::coast);
+
+}
+
+void prime(int power)
+{
+  Punch.rotateTo(0.375,rotationUnits::rev,power,velocityUnits::pct);
+}
+void start(int power)
+{
+  Punch.rotateTo(0,rotationUnits::rev,power,velocityUnits::pct);
+}
+void out(int power)
+{
+
+  Punch.rotateTo(1.125,rotationUnits::rev,power,velocityUnits::pct);
+}
+
+void OldDriveForward(int distnce,int leftpower,int rightpower)
+{
+  stopdrive();
+  zerodrive();
+  LFDrive.spin(vex::directionType::fwd,leftpower,vex::velocityUnits::pct);
+  LRDrive.spin(vex::directionType::fwd,leftpower,vex::velocityUnits::pct);
+  wait1Msec(10);
+  RFDrive.spin(vex::directionType::fwd,rightpower,vex::velocityUnits::pct);
+  RRDrive.spin(vex::directionType::fwd,rightpower,vex::velocityUnits::pct);
+  while(drive < distnce){wait1Msec(20);}
+  RFDrive.stop();
+  RRDrive.stop();
+  LFDrive.stop();
+  LRDrive.stop();
+ 
+}
+void OldDriveBackward(int distnce,int leftpower,int rightpower)
+{
+  stopdrive();
+  zerodrive();
+  LFDrive.spin(vex::directionType::rev,leftpower,vex::velocityUnits::pct);
+  LRDrive.spin(vex::directionType::rev,leftpower,vex::velocityUnits::pct);
+  wait1Msec(10);
+  RFDrive.spin(vex::directionType::rev,rightpower,vex::velocityUnits::pct);
+  RRDrive.spin(vex::directionType::rev,rightpower,vex::velocityUnits::pct);
+  while(drive > -distnce){wait1Msec(20);}
+  RFDrive.stop();
+  RRDrive.stop();
+  LFDrive.stop();
+  LRDrive.stop();
+}
+
+void DriveTilGoal(int leftpower,int rightpower)
+{
+  
+     RFDrive.spin(vex::directionType::fwd,rightpower,vex::velocityUnits::pct);
+   RRDrive.spin(vex::directionType::fwd,rightpower,vex::velocityUnits::pct);
+   wait1Msec(10);
+   LFDrive.spin(vex::directionType::fwd,leftpower,vex::velocityUnits::pct);
+   LRDrive.spin(vex::directionType::fwd,leftpower,vex::velocityUnits::pct);
+   waitUntil((LBump.pressing()) || (RBump.pressing()));
+    RFDrive.stop();
+      RRDrive.stop();
+       LFDrive.stop();
+       LRDrive.stop();
+}
+
+
+void DriveTilGoalwithVision(int leftpower,int rightpower)
+{
+
+   LFDrive.spin(vex::directionType::fwd,leftpower,vex::velocityUnits::pct);
+   LRDrive.spin(vex::directionType::fwd,leftpower,vex::velocityUnits::pct);
+   wait1Msec(15);
+  
+     RFDrive.spin(vex::directionType::fwd,rightpower,vex::velocityUnits::pct);
+   RRDrive.spin(vex::directionType::fwd,rightpower,vex::velocityUnits::pct);
+  
+  
+  
+   while((!LBump.pressing()) || (!RBump.pressing()))
+   {
+ 
+     Vision20.takeSnapshot(Vision20__RED_BALL);
+   
+       Vision20.takeSnapshot(Vision20__BLUE_BALL);
+  
+
+     if(Vision20.largestObject.centerX >= 150)
+     {
+       LFDrive.spin(fwd,leftpower*.8,pct);
+       LRDrive.spin(fwd,leftpower*.8,pct);
+     }
+     else if(Vision20.largestObject.centerX <= 120)
+     {
+       RFDrive.spin(fwd,rightpower*.8,pct);
+       RRDrive.spin(fwd,rightpower*.8,pct);  
+     }
+     else if((Vision20.largestObject.centerX >= 140) && (Vision20.largestObject.centerX <= 170))
+     {
+       LFDrive.spin(vex::directionType::fwd,leftpower,vex::velocityUnits::pct);
+   LRDrive.spin(vex::directionType::fwd,leftpower,vex::velocityUnits::pct);
+     RFDrive.spin(vex::directionType::fwd,rightpower,vex::velocityUnits::pct);
+   RRDrive.spin(vex::directionType::fwd,rightpower,vex::velocityUnits::pct);
+     }
+wait1Msec(20);
+   }
+    RFDrive.stop();
+      RRDrive.stop();
+       LFDrive.stop();
+       LRDrive.stop();
+}
+
+
+
+void DriveForward(int  drivedistance,int leftpower,int rightpower)
+{
+  zerodrive();
+  pidreset();
+  GyroSave = Gyro.rotation();
+    righttarget = drivedistance;
+    lefttarget = drivedistance;
+    rightmax = rightpower;
+    leftmax = rightpower;
+    wait1Msec(100);
+    while((righttotal > 5) || (lefttotal> 5)){wait1Msec(20);} 
+}
+
+void DriveBackward(int  drivedistance,int leftpower,int rightpower)
+{
+  zerodrive();
+  pidreset();
+  GyroSave = Gyro.rotation();
+    righttarget = -drivedistance;
+    lefttarget = -drivedistance;
+    rightmax = rightpower;
+    leftmax = rightpower;
+    wait1Msec(100);
+    while((righttotal < -5) || (lefttotal < -5)){wait1Msec(20);} 
+}
+void DriveForwardOntime(int time,int leftpower,int rightpower)
+{
+  
+     RFDrive.spin(vex::directionType::fwd,rightpower,vex::velocityUnits::pct);
+   RRDrive.spin(vex::directionType::fwd,rightpower,vex::velocityUnits::pct);
+   LFDrive.spin(vex::directionType::fwd,leftpower,vex::velocityUnits::pct);
+   LRDrive.spin(vex::directionType::fwd,leftpower,vex::velocityUnits::pct);
+   wait1Msec(time);
+    RFDrive.stop();
+      RRDrive.stop();
+       LFDrive.stop();
+       LRDrive.stop();
+}
+
+void DriveBackwardOntime(int time,int leftpower,int rightpower)
+{
+  
+     RFDrive.spin(vex::directionType::rev,rightpower,vex::velocityUnits::pct);
+   RRDrive.spin(vex::directionType::rev,rightpower,vex::velocityUnits::pct);
+   LFDrive.spin(vex::directionType::rev,leftpower,vex::velocityUnits::pct);
+   LRDrive.spin(vex::directionType::rev,leftpower,vex::velocityUnits::pct);
+   wait1Msec(time);
+    RFDrive.stop();
+      RRDrive.stop();
+       LFDrive.stop();
+       LRDrive.stop();
+}
+
+void leftTurn(int rotation, int leftpower, int rightpower)
+{
+   LRDrive.setVelocity(175, velocityUnits::rpm);
+  LFDrive.setVelocity(175, velocityUnits::rpm);
+  RFDrive.setVelocity(175, velocityUnits::rpm);
+  RRDrive.setVelocity(175, velocityUnits::rpm);
+  righttarget = 0;
+  lefttarget = 0;
+  zerodrive();
+  turntarget = rotation;
+  turnmax = rightpower;
+     wait1Msec(100);
+    while(turntotal < -2){wait1Msec(20);}
+    Brain.Screen.printAt(10,80, " Finished Turn");
+}
+void rightTurn(int rotation,int leftpower,int rightpower)
+{
+  LRDrive.setVelocity(175, velocityUnits::rpm);
+  LFDrive.setVelocity(175, velocityUnits::rpm);
+  RFDrive.setVelocity(175, velocityUnits::rpm);
+  RRDrive.setVelocity(175, velocityUnits::rpm);
+  righttarget = 0;
+  lefttarget = 0;
+  zerodrive();
+  turntarget = rotation;
+  turnmax = rightpower;
+     wait1Msec(100);
+    while(turntotal > 2){wait1Msec(20);}
+
+}
+
+void rightTurnGyro(float rotation,int leftpower,int rightpower)
+{
+  
+
+  
+    RFDrive.spin(directionType::rev,rightpower,pct);
+    RRDrive.spin(directionType::rev,rightpower,pct);
+    LRDrive.spin(directionType::fwd,leftpower,pct);
+    LFDrive.spin(directionType::fwd,leftpower,pct);
+    while(Gyro.rotation() < rotation)
+    {wait1Msec(20);}
+     RFDrive.stop(brake);
+    RRDrive.stop(brake);
+    LRDrive.stop(brake);
+    LFDrive.stop(brake);
+}
+
+void leftTurnGyro(float rotation,int leftpower,int rightpower)
+{
+  turn = Gyro.yaw() - rotation;
+  if(turn < 0)
+  {
+    turn = turn + 360;
+  }
+
+
+
+  if(turn > Gyro.yaw())
+  {
+RFDrive.spin(vex::directionType::fwd,rightpower,vex::velocityUnits::pct);
+    RRDrive.spin(vex::directionType::fwd,rightpower,vex::velocityUnits::pct);
+    LRDrive.spin(vex::directionType::rev,leftpower,vex::velocityUnits::pct);
+    LFDrive.spin(vex::directionType::rev,leftpower,vex::velocityUnits::pct);
+    while(Gyro.heading() < 355)
+    {
+ 
+      wait1Msec(20);
+
+    }
+
+  zerodrive();
+    RFDrive.spin(vex::directionType::fwd,rightpower,vex::velocityUnits::pct);
+    RRDrive.spin(vex::directionType::fwd,rightpower,vex::velocityUnits::pct);
+    LRDrive.spin(vex::directionType::rev,leftpower,vex::velocityUnits::pct);
+    LFDrive.spin(vex::directionType::rev,leftpower,vex::velocityUnits::pct);
+    while(Gyro.heading() > turn)
+    {
+      Brain.Screen.setCursor(10,5);
+   Controller1.Screen.print("%d",Gyro.heading());
+      wait1Msec(20);
+
+    }
+     RFDrive.stop(vex::brakeType::brake);
+    RRDrive.stop(vex::brakeType::brake);
+    LRDrive.stop(vex::brakeType::brake);
+    LFDrive.stop(vex::brakeType::brake);
+  }
+  if(turn < Gyro.heading())
+  {
+   RFDrive.spin(vex::directionType::fwd,rightpower,vex::velocityUnits::pct);
+    RRDrive.spin(vex::directionType::fwd,rightpower,vex::velocityUnits::pct);
+    LRDrive.spin(vex::directionType::rev,leftpower,vex::velocityUnits::pct);
+    LFDrive.spin(vex::directionType::rev,leftpower,vex::velocityUnits::pct);
+    while(Gyro.heading() > turn)
+    {
+      Brain.Screen.setCursor(10,5);
+   Controller1.Screen.print("%d",Gyro.heading());
+      wait1Msec(20);
+
+    }
+     RFDrive.stop(vex::brakeType::brake);
+    RRDrive.stop(vex::brakeType::brake);
+    LRDrive.stop(vex::brakeType::brake);
+    LFDrive.stop(vex::brakeType::brake);
+  }
+}
+
+void leftStrafe(float distance, int power)
+{
+ 
+    RFDrive.spin(vex::directionType::fwd,power,vex::velocityUnits::pct);
+    RRDrive.spin(vex::directionType::fwd,-power,vex::velocityUnits::pct);
+    LFDrive.spin(vex::directionType::fwd,-power,vex::velocityUnits::pct);
+    LRDrive.spin(vex::directionType::fwd,power,vex::velocityUnits::pct);
+
+    while(strafe > -distance){
+      wait1Msec(20);
+    }
+stopdrive();
+}
+
+void rightStrafe(float distance, int yespower)
+{
+   
+    RFDrive.spin(vex::directionType::fwd,-yespower,vex::velocityUnits::pct);
+    RRDrive.spin(vex::directionType::fwd,yespower,vex::velocityUnits::pct);
+    LFDrive.spin(vex::directionType::fwd,yespower,vex::velocityUnits::pct);
+    LRDrive.spin(vex::directionType::fwd,-yespower,vex::velocityUnits::pct);
+
+    while(strafe < distance){
+      wait1Msec(20);
+    }
+stopdrive();
+  
+}
+int GoalCorrect(void)
+{
+
+
+ 
+    targetcorrect = -140;
+ 
+  
+
+  if((Gyro.rotation() > targetcorrect) && (targetcorrect >= 0))
+  {
+    correctdone = false;
+    
+    pwr = Gyro.rotation() - targetcorrect;
+      
+      pwr = pwr*pwr;
+      Brain.Screen.printAt(20,20,"pwr = %f", pwr);
+    while(pwr > 5)
+    {
+      pwr = Gyro.rotation() - targetcorrect;
+      
+      pwr = pwr*pwr;
+      
+    
+RFDrive.spin(vex::directionType::fwd,pwr,vex::velocityUnits::pct);
+    RRDrive.spin(vex::directionType::fwd,pwr,vex::velocityUnits::pct);
+    LFDrive.spin(vex::directionType::rev,pwr,vex::velocityUnits::pct);
+    LRDrive.spin(vex::directionType::rev,pwr,vex::velocityUnits::pct);
+    
+      wait1Msec(20);
+    }
+    Brain.Screen.printAt(20,60,"Gyro = %f", Gyro.rotation());
+       RFDrive.spin(directionType::fwd,10,velocityUnits::pct);
+   RRDrive.spin(directionType::fwd,10,velocityUnits::pct);
+   LFDrive.spin(directionType::fwd,10,velocityUnits::pct);
+   LRDrive.spin(directionType::fwd,10,velocityUnits::pct);
+    stopdrive();
+  }
+  else if((Gyro.rotation() > targetcorrect) && (targetcorrect < 0))
+  {
+    Brain.Screen.printAt(20,20,"oops = %d", pwr);
+    RFDrive.spin(vex::directionType::rev,pwr,vex::velocityUnits::pct);
+    RRDrive.spin(vex::directionType::rev,pwr,vex::velocityUnits::pct);
+    LFDrive.spin(vex::directionType::fwd,pwr,vex::velocityUnits::pct);
+    LRDrive.spin(vex::directionType::fwd,pwr,vex::velocityUnits::pct);
+  }
+
+  else if((Gyro.rotation() < targetcorrect) && (targetcorrect >= 0))
+  {
+    pwr = (Gyro.rotation() + targetcorrect)+.5;
+      
+      pwr = pwr*pwr;
+      Brain.Screen.printAt(20,20,"pwr = %f", pwr);
+    while(pwr > 5)
+    {
+      pwr = (Gyro.rotation() + targetcorrect)+.5;
+      
+      pwr = pwr*pwr;
+      
+    
+RFDrive.spin(vex::directionType::rev,pwr,vex::velocityUnits::pct);
+    RRDrive.spin(vex::directionType::rev,pwr,vex::velocityUnits::pct);
+    LFDrive.spin(vex::directionType::fwd,pwr,vex::velocityUnits::pct);
+    LRDrive.spin(vex::directionType::fwd,pwr,vex::velocityUnits::pct);
+    
+      wait1Msec(20);
+    }
+    Brain.Screen.printAt(20,60,"Gyro = %f", Gyro.rotation());
+       RFDrive.spin(directionType::fwd,10,velocityUnits::pct);
+   RRDrive.spin(directionType::fwd,10,velocityUnits::pct);
+   LFDrive.spin(directionType::fwd,10,velocityUnits::pct);
+   LRDrive.spin(directionType::fwd,10,velocityUnits::pct);
+    stopdrive();
+  }
+  else if((Gyro.rotation() < targetcorrect) && (targetcorrect < 0))
+  {
+    Brain.Screen.printAt(20,20,"oops code : 2");
+  }
+
+  correctdone = true;
+  return(0);
+}
+
+int GoalCorrect2(void)
+{
+
+
+
+    targetcorrect = -140;
+  
+
+  
+
+  if((Gyro.rotation() > targetcorrect) && (targetcorrect >= 0))
+  {
+    correctdone = false;
+    
+    pwr = Gyro.rotation() - targetcorrect;
+      
+      pwr = pwr*pwr;
+      Brain.Screen.printAt(20,20,"pwr = %f", pwr);
+    while(pwr > 5)
+    {
+      pwr = Gyro.rotation() - targetcorrect;
+      
+      pwr = pwr*pwr;
+      
+    
+RFDrive.spin(vex::directionType::fwd,pwr*.5,vex::velocityUnits::pct);
+    RRDrive.spin(vex::directionType::fwd,pwr*.5,vex::velocityUnits::pct);
+    LFDrive.spin(vex::directionType::rev,pwr*2,vex::velocityUnits::pct);
+    LRDrive.spin(vex::directionType::rev,pwr*2,vex::velocityUnits::pct);
+    
+      wait1Msec(20);
+    }
+    Brain.Screen.printAt(20,60,"Gyro = %f", Gyro.rotation());
+      RFDrive.spin(directionType::fwd,10,velocityUnits::pct);
+   RRDrive.spin(directionType::fwd,10,velocityUnits::pct);
+   LFDrive.spin(directionType::fwd,10,velocityUnits::pct);
+   LRDrive.spin(directionType::fwd,10,velocityUnits::pct);
+    stopdrive();
+  }
+  else if((Gyro.rotation() > targetcorrect) && (targetcorrect < 0))
+  {
+    Brain.Screen.printAt(20,20,"oops = %d", pwr);
+    RFDrive.spin(vex::directionType::rev,pwr*2,vex::velocityUnits::pct);
+    RRDrive.spin(vex::directionType::rev,pwr*2,vex::velocityUnits::pct);
+    LFDrive.spin(vex::directionType::fwd,pwr*.5,vex::velocityUnits::pct);
+    LRDrive.spin(vex::directionType::fwd,pwr*.5,vex::velocityUnits::pct);
+  }
+
+  else if((Gyro.rotation() < targetcorrect) && (targetcorrect >= 0))
+  {
+    pwr = (Gyro.rotation() + targetcorrect)+.5;
+      
+      pwr = pwr*pwr;
+      Brain.Screen.printAt(20,20,"pwr = %f", pwr);
+    while(pwr > 5)
+    {
+      pwr = (Gyro.rotation() + targetcorrect)+.5;
+      
+      pwr = pwr*pwr;
+      
+    
+RFDrive.spin(vex::directionType::rev,pwr*2,vex::velocityUnits::pct);
+    RRDrive.spin(vex::directionType::rev,pwr*2,vex::velocityUnits::pct);
+    LFDrive.spin(vex::directionType::fwd,pwr*.5,vex::velocityUnits::pct);
+    LRDrive.spin(vex::directionType::fwd,pwr*2,vex::velocityUnits::pct);
+    
+      wait1Msec(20);
+    }
+    Brain.Screen.printAt(20,60,"Gyro = %f", Gyro.rotation());
+       RFDrive.spin(directionType::fwd,10,velocityUnits::pct);
+   RRDrive.spin(directionType::fwd,10,velocityUnits::pct);
+   LFDrive.spin(directionType::fwd,10,velocityUnits::pct);
+   LRDrive.spin(directionType::fwd,10,velocityUnits::pct);
+    stopdrive();
+  }
+  else if((Gyro.rotation() < targetcorrect) && (targetcorrect < 0))
+  {
+    Brain.Screen.printAt(20,20,"oops code : 2");
+  }
+
+  correctdone = true;
+  return(0);
+}
+
+//Driver Auto Cyle Code Here!!!!!!!-----------------------------------------------
+void conveycycle(int speed)
+{
+ while(Controller1.ButtonY.pressing()){wait1Msec(20);}
+     while(!Controller1.ButtonY.pressing())
+     {
+       if((MID < 1) &&(!Controller1.ButtonY.pressing()))
+        {
+        Lintake.spin(directionType::fwd,100,velocityUnits::pct);
+        Rintake.spin(directionType::fwd,100,velocityUnits::pct);
+        while(BOT < 1){
+          if(Controller1.ButtonY.pressing())
+          {break;}
+          wait1Msec(20);}
+          if(Controller1.ButtonY.pressing())
+          {break;}
+        Convey.spin(directionType::fwd,100,velocityUnits::pct);
+        wait1Msec(200);
+        Lintake.stop(brakeType::brake);
+        Rintake.stop(brakeType::brake);
+        while(MID < 1){wait1Msec(20);}
+        Convey.stop(brakeType::brake);
+        break;
+        }
+        else if((MID == 1) &&(!Controller1.ButtonY.pressing()))
+        {
+          Lintake.spin(directionType::fwd,100,velocityUnits::pct);
+        Rintake.spin(directionType::fwd,100,velocityUnits::pct);
+        while(BOT < 1){
+          if(Controller1.ButtonY.pressing())
+          {break;}
+          wait1Msec(20);}
+          if(Controller1.ButtonY.pressing())
+          {break;}
+        Convey.spin(directionType::fwd,100,velocityUnits::pct);
+        wait1Msec(200);
+        Lintake.stop(brakeType::brake);
+        Rintake.stop(brakeType::brake);
+        while(TOP < 1){wait1Msec(20);}
+        Convey.stop(brakeType::brake);
+        break;
+        }
+        else if((TOP == 1) &&(!Controller1.ButtonY.pressing()))
+        {
+          Lintake.spin(directionType::fwd,100,velocityUnits::pct);
+        Rintake.spin(directionType::fwd,100,velocityUnits::pct);
+        while(BOT < 1){
+          if(Controller1.ButtonY.pressing())
+          {break;}
+          wait1Msec(20);}
+          if(Controller1.ButtonY.pressing())
+          {break;}
+        Lintake.stop(brakeType::brake);
+        Rintake.stop(brakeType::brake);
+        break;
+        }
+     }
+}
+void firstgoal(void)
+{ 
+  Lintake.spin(directionType::fwd,100,velocityUnits::pct);
+  Rintake.spin(directionType::fwd,100,velocityUnits::pct);
+  wait1Msec(200);
+  GyroSave = Gyro.rotation(deg);
+  DriveTilGoalwithVision(80,80);
+  wait1Msec(200);
+  RFDrive.stop(brakeType::brake);
+  RRDrive.stop(brakeType::brake);
+  LFDrive.stop(brakeType::brake);
+  LRDrive.stop(brakeType::brake);
+
+ while(BOT < 1)
+ {wait1Msec(20);}
+ Convey.spin(directionType::fwd,100,velocityUnits::pct);
+        wait1Msec(200);
+  Lintake.spin(directionType::fwd,10,velocityUnits::pct);
+  Rintake.spin(directionType::fwd,10,velocityUnits::pct);
+        wait1Msec(200);
+        waitUntil(Diestance.value() < 200);
+        waitUntil(Diestance.value() > 200);
+ 
+        wait1Msec(200);
+        Lintake.spin(directionType::fwd,50,velocityUnits::pct);
+        Rintake.spin(directionType::fwd,50,velocityUnits::pct);
+         while(BOT < 1)
+        {wait1Msec(20);}
+      
+       Convey.spin(directionType::fwd,100,velocityUnits::pct);
+     
+        while(BOT < 1){
+          if(TOP > 0)
+          {
+            Convey.stop(brakeType::brake);
+          }
+          wait1Msec(20);
+          }
+        wait1Msec(200);
+         waitUntil(MID < 1);
+         wait1Msec(200);
+         Convey.stop(brakeType::brake);
+        
+        while(BOT < 1)
+        {wait1Msec(20);}
+        stopdrive();
+        zerodrive();
+        wait1Msec(200);
+        Brain.Screen.printAt(100,100, "Diestance : %d",Diestance.value());
+
+       Lintake.spin(directionType::rev,100,velocityUnits::pct);
+        Rintake.spin(directionType::rev,100,velocityUnits::pct);
+   
+   
+          OldDriveBackward(300,75,75);
+         stopdrive();
+         zerodrive();
+        wait1Msec(200);
+        wait1Msec(200);
+       Lintake.stop(brakeType::brake);
+        Rintake.stop(brakeType::brake);
+
+
+}
+void firstgoalspecial(void)
+{ 
+ Lintake.spin(directionType::fwd,100,velocityUnits::pct);
+  Rintake.spin(directionType::fwd,100,velocityUnits::pct);
+  wait1Msec(200);
+  DriveForwardOntime(1200,40,40);
+  wait1Msec(200);
+
+    
+  Convey.spin(directionType::fwd,100,velocityUnits::pct);
+ while(BOT < 1) 
+ {wait1Msec(20);}
+ wait1Msec(200);
+             Lintake.spin(directionType::fwd,20,velocityUnits::pct);
+        Rintake.spin(directionType::fwd,20,velocityUnits::pct);
+        RFDrive.stop();
+      RRDrive.stop();
+       LFDrive.stop();
+       LRDrive.stop();
+        wait1Msec(600);
+        waitUntil(MID < 1);
+        wait1Msec(600);
+Convey.stop();
+       wait1Msec(200);
+       Convey.spin(reverse,100,pct);
+        Lintake.spin(directionType::rev,80,velocityUnits::pct);
+        Rintake.spin(directionType::rev,80,velocityUnits::pct);
+        wait1Msec(50);
+        DriveBackwardOntime(800,90,91);
+    
+        wait1Msec(500);
+       Lintake.stop(brakeType::brake);
+        Rintake.stop(brakeType::brake);
+}
+void onlyfirstgoal(void)
+{/*
+  Lintake.spin(directionType::fwd,100,velocityUnits::pct);
+  Rintake.spin(directionType::fwd,100,velocityUnits::pct);
+  wait1Msec(200);
+  DriveForwardOntime(800,80,80);
+
+ while((BOT < 1) && (Timer1.time(sec) < 5))
+ {wait1Msec(20);}
+ Convey.spin(directionType::fwd,100,velocityUnits::pct);
+        wait1Msec(400);
+        Lintake.stop(brakeType::brake);
+        Rintake.stop(brakeType::brake);
+        wait1Msec(200);
+        waitUntil(TOP < 1);
+        wait1Msec(200);
+        Lintake.spin(directionType::fwd,63,velocityUnits::pct);
+        Rintake.spin(directionType::fwd,63,velocityUnits::pct);
+         while((BOT < 1) && (Timer1.time(sec) < 12))
+        {wait1Msec(20);}
+      
+       Convey.spin(directionType::fwd,100,velocityUnits::pct);
+     
+        
+        wait1Msec(400);
+        
+        Lintake.stop(brakeType::brake);
+        Rintake.stop(brakeType::brake);
+ wait1Msec(1500);
+ stopdrive();
+   
+   Lintake.spin(directionType::fwd,50,velocityUnits::pct);
+        Rintake.spin(directionType::fwd,50,velocityUnits::pct);
+        DriveBackwardOntime(700,90,90);
+       Lintake.stop(brakeType::brake);
+        Rintake.stop(brakeType::brake);
+*/
+Lintake.spin(directionType::fwd,100,velocityUnits::pct);
+  Rintake.spin(directionType::fwd,100,velocityUnits::pct);
+  wait1Msec(200);
+GyroSave = Gyro.rotation(deg);
+  DriveTilGoalwithVision(80,80);
+  wait1Msec(200);
+   RFDrive.spin(directionType::fwd,10,velocityUnits::pct);
+   RRDrive.spin(directionType::fwd,10,velocityUnits::pct);
+   LFDrive.spin(directionType::fwd,10,velocityUnits::pct);
+   LRDrive.spin(directionType::fwd,10,velocityUnits::pct);
+
+ while((BOT < 1) && (Timer1.time(sec) < 5))
+ {wait1Msec(20);}
+ Convey.spin(directionType::fwd,100,velocityUnits::pct);
+  while(BOT == 1)
+        {wait1Msec(20);}
+        wait1Msec(200);
+          while(BOT < 1)
+        {wait1Msec(20);}
+        wait1Msec(200);
+          while(BOT == 1)
+        {wait1Msec(20);}
+      Lintake.spin(directionType::fwd,35,velocityUnits::pct);
+  Rintake.spin(directionType::fwd,35,velocityUnits::pct);
+       wait1Msec(200);
+        while(BOT < 1)
+        {wait1Msec(20);}
+        Lintake.stop(brakeType::brake);
+        Rintake.stop(brakeType::brake);
+        stopdrive();
+        wait1Msec(1000); 
+        Lintake.spin(directionType::rev,80,velocityUnits::pct);
+  Rintake.spin(directionType::rev,80,velocityUnits::pct);
+         OldDriveBackward(300,75,75);
+         stopdrive();
+         zerodrive();
+        wait1Msec(200);
+       Lintake.stop(brakeType::brake);
+        Rintake.stop(brakeType::brake);
+}
+void firstgoalwithoutdrive(void)
+{
+  Lintake.spin(directionType::fwd,100,velocityUnits::pct);
+  Rintake.spin(directionType::fwd,100,velocityUnits::pct);
+  wait1Msec(200);
+  DriveForwardOntime(1200,50,50);
+  wait1Msec(200);
+ 
+ while(BOT < 1)
+ {wait1Msec(20);}
+ Convey.spin(directionType::fwd,100,velocityUnits::pct);
+        wait1Msec(400);
+        Lintake.stop(brakeType::brake);
+        Rintake.stop(brakeType::brake);
+        wait1Msec(200);
+        waitUntil(MID < 1);
+        wait1Msec(200);
+        Lintake.spin(directionType::fwd,60,velocityUnits::pct);
+        Rintake.spin(directionType::fwd,60,velocityUnits::pct);
+         while(BOT < 1)
+        {wait1Msec(20);}
+      
+       Convey.spin(directionType::fwd,100,velocityUnits::pct);
+     
+        while(BOT < 1){
+          if(TOP > 0)
+          {
+            Convey.stop(brakeType::brake);
+          }
+          wait1Msec(20);
+          }
+        wait1Msec(200);
+         waitUntil(MID < 1);
+         wait1Msec(400);
+         Convey.stop(brakeType::brake);
+        while(BOT < 1)
+        {wait1Msec(20);}
+ 
+       Lintake.spin(directionType::rev,100,velocityUnits::pct);
+        Rintake.spin(directionType::rev,100,velocityUnits::pct);
+   
+
+
+
+}
+void secondgoal()
+{
+Lintake.spin(directionType::fwd,100,velocityUnits::pct);
+  Rintake.spin(directionType::fwd,100,velocityUnits::pct);
+  wait1Msec(200);
+  DriveForwardOntime(1200,40,40);
+  wait1Msec(200);
+
+    
+  Convey.spin(directionType::fwd,100,velocityUnits::pct);
+ while(BOT < 1) 
+ {wait1Msec(20);}
+ wait1Msec(200);
+             Lintake.spin(directionType::fwd,40,velocityUnits::pct);
+        Rintake.spin(directionType::fwd,40,velocityUnits::pct);
+        RFDrive.stop();
+      RRDrive.stop();
+       LFDrive.stop();
+       LRDrive.stop();
+        wait1Msec(400);
+        waitUntil(MID < 1);
+        wait1Msec(400);
+Convey.stop();
+       wait1Msec(200);
+        Lintake.spin(directionType::rev,100,velocityUnits::pct);
+        Rintake.spin(directionType::rev,100,velocityUnits::pct);
+        wait1Msec(50);
+        DriveBackwardOntime(600,90,91);
+    
+        wait1Msec(500);
+       Lintake.stop(brakeType::brake);
+        Rintake.stop(brakeType::brake);
+}
+void firstsecondgoal()
+{
+Lintake.spin(directionType::fwd,100,velocityUnits::pct);
+  Rintake.spin(directionType::fwd,100,velocityUnits::pct);
+  wait1Msec(200);
+  DriveForwardOntime(1200,40,40);
+  wait1Msec(200);
+ 
+    
+  Convey.spin(directionType::fwd,100,velocityUnits::pct);
+waitUntil(BOT == 1);
+ waitUntil(BOT < 1);
+
+
+             Lintake.spin(directionType::fwd,40,velocityUnits::pct);
+        Rintake.spin(directionType::fwd,40,velocityUnits::pct);
+        RFDrive.stop();
+      RRDrive.stop();
+       LFDrive.stop();
+       LRDrive.stop();
+       
+        waitUntil(BOT == 1);
+             Lintake.stop(brakeType::brake);
+        Rintake.stop(brakeType::brake);
+        wait1Msec(600);
+Convey.stop();
+       wait1Msec(200);
+       Convey.spin(directionType::rev,100,pct);
+        Lintake.spin(directionType::rev,100,velocityUnits::pct);
+        Rintake.spin(directionType::rev,100,velocityUnits::pct);
+        wait1Msec(50);
+        DriveBackwardOntime(800,90,90);
+    
+        wait1Msec(500);
+       Lintake.stop(brakeType::brake);
+        Rintake.stop(brakeType::brake);
+        Convey.stop(brake);
+}
+void secondgoalspecial()
+{
+Lintake.spin(directionType::fwd,100,velocityUnits::pct);
+  Rintake.spin(directionType::fwd,100,velocityUnits::pct);
+  
+  wait1Msec(200);
+ 
+    
+  Convey.spin(directionType::fwd,100,velocityUnits::pct);
+ while(BOT < 1) 
+ {wait1Msec(20);}
+ wait1Msec(200);
+             Lintake.spin(directionType::fwd,25,velocityUnits::pct);
+        Rintake.spin(directionType::fwd,25,velocityUnits::pct);
+        RFDrive.stop();
+      RRDrive.stop();
+       LFDrive.stop();
+       LRDrive.stop();
+        wait1Msec(600);
+        waitUntil(MID < 1);
+        wait1Msec(600);
+Convey.stop();
+       wait1Msec(200);
+               if(Diestance.value() < 150)
+        {        
+          Lintake.stop(brakeType::brake);
+        Rintake.stop(brakeType::brake);
+          Convey.spin(directionType::rev,100,pct);
+          waitUntil(MID < 1);
+          wait1Msec(200);
+          waitUntil(MID == 1);
+          Convey.spin(directionType::fwd,100,pct);
+          waitUntil(Diestance.value() < 150);
+          waitUntil(Diestance.value() > 150);
+          Convey.stop(brake);
+
+        }
+             Lintake.spin(directionType::rev,100,velocityUnits::pct);
+        Rintake.spin(directionType::rev,100,velocityUnits::pct);
+
+    
+  
+}
+void thirdgoal()
+{
+ Lintake.spin(directionType::fwd,100,velocityUnits::pct);
+  Rintake.spin(directionType::fwd,100,velocityUnits::pct);
+  wait1Msec(200);
+  GyroSave = Gyro.rotation(deg);
+  DriveForwardOntime(1400,GyroSave - Gyro.rotation() + 80,GyroSave - Gyro.rotation() + 80);
+
+
+ Convey.spin(directionType::fwd,100,velocityUnits::pct);
+ wait1Msec(350);
+   RFDrive.spin(vex::directionType::fwd,20,vex::velocityUnits::pct);
+   RRDrive.spin(vex::directionType::fwd,20,vex::velocityUnits::pct);
+   LFDrive.spin(vex::directionType::fwd,20,vex::velocityUnits::pct);
+   LRDrive.spin(vex::directionType::fwd,20,vex::velocityUnits::pct);
+ while((BOT < 1) && (Timer1.time(sec) < 13))
+ {wait1Msec(20);}
+ wait1Msec(300);
+ Lintake.stop(brakeType::brake);
+ Rintake.stop(brakeType::brake);
+ wait1Msec(900);
+ waitUntil(TOP < 1);
+ stopdrive();
+ wait1Msec(200);
+ Lintake.spin(directionType::fwd,100,velocityUnits::pct);
+  Rintake.spin(directionType::fwd,100,velocityUnits::pct);
+ OldDriveBackward(400,90,90);
+
+ Convey.stop();
+Lintake.stop(brakeType::brake);
+ Rintake.stop(brakeType::brake);
+}
+
+int autocycletask()
+{
+  fin = 0;
+  conveycycle(100);
+  fin = 1;
+  return(0);
+}
+
+
+
+int intakeControl()
+{
+  
+  while(true)
+  {
+      if(Diestance.value() < 200) 
+    {
+      Controller1.rumble("-");
+     
+    }
+    if(Controller1.ButtonR1.pressing())
+   {
+    Lintake.spin(directionType::fwd,100,velocityUnits::pct);
+    Rintake.spin(directionType::fwd,100,velocityUnits::pct);
+    
+   }
+   else if(Controller1.ButtonR2.pressing())
+   {
+    Lintake.spin(directionType::rev,100,velocityUnits::pct);
+    Rintake.spin(directionType::rev,100,velocityUnits::pct);
+   }
+   else
+   {
+     Lintake.stop(brakeType::brake);
+     Rintake.stop(brakeType::brake);
+
+   }
+
+   if(Controller1.ButtonL1.pressing())
+   {
+    Convey.spin(directionType::fwd,100,velocityUnits::pct);
+   }
+   else if(Controller1.ButtonL2.pressing())
+   {
+    Convey.spin(directionType::rev,100,velocityUnits::pct);
+   }
+   else
+   {
+     Convey.stop(brakeType::brake);
+   }
+
+    if(Controller1.ButtonY.pressing())
+     {
+      while(Controller1.ButtonY.pressing()){wait1Msec(20);}
+     while(!Controller1.ButtonY.pressing())
+     {
+       if(POS == 0)
+        {
+          Brain.Screen.printAt(10,60,"1");
+        Lintake.spin(directionType::fwd,100,velocityUnits::pct);
+        Rintake.spin(directionType::fwd,100,velocityUnits::pct);
+        while(BOT < 1){
+          if(Controller1.ButtonY.pressing())
+          {break;}
+          wait1Msec(20);}
+          if(Controller1.ButtonY.pressing())
+          {break;}
+        Convey.spin(directionType::fwd,100,velocityUnits::pct);
+        wait1Msec(200);
+        Lintake.stop(brakeType::brake);
+        Rintake.stop(brakeType::brake);
+        while(MID < 1){wait1Msec(20);}
+        Convey.stop(brakeType::brake);
+        if(POS < 1)
+        {
+          Convey.spin(directionType::rev,35,velocityUnits::pct);
+          waitUntil(MID == 1);
+          Convey.stop(brakeType::brake);
+          Brain.Screen.printAt(10,60,"backup");
+        }
+
+        break;
+        }
+        else if(POS == 1)
+        {
+          Brain.Screen.printAt(10,60,"2");
+          Lintake.spin(directionType::fwd,100,velocityUnits::pct);
+        Rintake.spin(directionType::fwd,100,velocityUnits::pct);
+        while(BOT < 1){
+          if(Controller1.ButtonY.pressing())
+          {break;}
+          wait1Msec(20);}
+          if(Controller1.ButtonY.pressing())
+          {break;}
+        Convey.spin(directionType::fwd,100,velocityUnits::pct);
+        wait1Msec(200);
+        Lintake.stop(brakeType::brake);
+        Rintake.stop(brakeType::brake);
+        while(TOP < 1){wait1Msec(20);}
+        Convey.stop(brakeType::brake);
+        if(POS < 1)
+        {
+          Convey.spin(directionType::rev,35,velocityUnits::pct);
+          
+          waitUntil(POS == 2);
+          Convey.stop(brakeType::hold);
+          wait1Msec(200);
+          Convey.stop(brake);
+        }
+        break;
+        }
+        else if(POS == 2)
+        {
+          Brain.Screen.printAt(10,60,"3");
+          Lintake.spin(directionType::fwd,100,velocityUnits::pct);
+        Rintake.spin(directionType::fwd,100,velocityUnits::pct);
+        while(BOT < 1){
+          if(Controller1.ButtonY.pressing())
+          {break;}
+          wait1Msec(20);}
+          if(Controller1.ButtonY.pressing())
+          {break;}
+        Lintake.stop(brakeType::brake);
+        Rintake.stop(brakeType::brake);
+        break;
+        }
+        
+     
+      }
+   }
+
+   
+   if(Controller1.ButtonRight.pressing())
+   {
+     if(POS == 1)
+     {
+       Convey.spin(directionType::fwd,100,velocityUnits::pct);
+     wait1Msec(1300);
+     Convey.stop(brakeType::brake);
+     }
+     if(POS == 2)
+     {
+       Convey.spin(directionType::fwd,100,velocityUnits::pct);
+     wait1Msec(1300);
+     Convey.stop(brakeType::brake);
+     }
+     if(POS == 3)
+     {
+     Convey.spin(directionType::fwd,100,velocityUnits::pct);
+     wait1Msec(200);
+     Lintake.spin(directionType::fwd,100,velocityUnits::pct);
+    Rintake.spin(directionType::fwd,100,velocityUnits::pct);
+    wait1Msec(300);
+    Lintake.stop(brakeType::brake);
+     Rintake.stop(brakeType::brake);
+     wait1Msec(1500);
+     Convey.stop(brakeType::brake);
+     waitUntil(driveforward < -10);
+     Lintake.spin(directionType::rev,75,velocityUnits::pct);
+    Rintake.spin(directionType::rev,75,velocityUnits::pct);
+    wait1Msec(500);
+    Lintake.stop(brakeType::brake);
+     Rintake.stop(brakeType::brake);
+     }
+   }
+   
+   wait1Msec(20);
+    
+  }
+  
+  return(0);
+}
+
+
+
+int puncherControl()
+{
+  Punch.resetRotation();
+ while(true)
+ {
+   if((Controller1.ButtonB.pressing()) && (!Controller1.ButtonDown.pressing()))
+   {
+     
+     Punch.spin(directionType::fwd,100,pct);
+     while((Controller1.ButtonB.pressing()) && (Punch.rotation(rotationUnits::rev) < 1.125))
+     {wait1Msec(200);}
+     Punch.stop(brakeType::coast);
+   }
+   else if((!Controller1.ButtonB.pressing()) && (Controller1.ButtonDown.pressing()))
+   {
+     prime(100);
+   }
+   else if((Controller1.ButtonB.pressing()) && (Controller1.ButtonDown.pressing()))
+   {
+     while(Controller1.ButtonB.pressing())
+     {
+     Punch.rotateTo(1.125,rotationUnits::rev,100,velocityUnits::pct);
+     Punch.rotateTo(0.375,rotationUnits::rev,100,velocityUnits::pct);
+     wait1Msec(100);
+     }
+   }
+   else
+   {
+  
+     if(Punch.rotation(rotationUnits::rev) > 0.1)
+     {
+     Punch.spin(directionType::rev, 100, velocityUnits::pct);
+     while((Punch.rotation(rotationUnits::rev) > 0.1) && (!Controller1.ButtonB.pressing()) && (!Controller1.ButtonDown.pressing()))
+     {
+       wait1Msec(20);
+     }
+
+     Punch.stop(brakeType::coast);
+     }
+     else
+     {
+       Punch.stop(brakeType::coast);
+     }
+   
+     
+   
+   }
+   
+   if(Controller1.ButtonLeft.pressing())
+   {
+     Punch.spin(directionType::rev, 100, velocityUnits::pct);
+     while(Punch.torque(torqueUnits::Nm) < .9)
+     {
+       wait1Msec(20);
+     }
+     Punch.spin(directionType::rev, 100, velocityUnits::pct);
+     wait1Msec(100);   
+     Punch.stop(brakeType::coast);
+
+     Punch.resetRotation();
+   }
+ 
+   wait1Msec(20);
+ }
+
+}
+
+void visioncorrect(int power)
+{
+    LRDrive.setVelocity(175, velocityUnits::rpm);
+  LFDrive.setVelocity(175, velocityUnits::rpm);
+  RFDrive.setVelocity(175, velocityUnits::rpm);
+  RRDrive.setVelocity(175, velocityUnits::rpm);
+while(true)
+  {
+    
+  
+
+  Vision20.takeSnapshot(Vision20__RED_BALL);
+  Vision20.takeSnapshot(Vision20__BLUE_BALL);
+  if(Vision20.largestObject.centerX >= 170)
+  {
+    LFDrive.spin(vex::directionType::rev,power,vex::velocityUnits::pct);
+    LRDrive.spin(vex::directionType::rev,power,vex::velocityUnits::pct);
+        RFDrive.spin(vex::directionType::fwd,power,vex::velocityUnits::pct);
+    RRDrive.spin(vex::directionType::fwd,power,vex::velocityUnits::pct);
+  }
+  else if(Vision20.largestObject.centerX <= 150)
+  {
+    LFDrive.spin(vex::directionType::fwd,power,vex::velocityUnits::pct);
+    LRDrive.spin(vex::directionType::fwd,power,vex::velocityUnits::pct);
+    RFDrive.spin(vex::directionType::rev,power,vex::velocityUnits::pct);
+    RRDrive.spin(vex::directionType::rev,power,vex::velocityUnits::pct);
+  }
+  else if((Vision20.largestObject.centerX >= 145) && (Vision20.largestObject.centerX <= 180))
+  {
+    stopdrive();
+    return;
+  }
+  
+    wait1Msec(20);
+}
+}
+
+
+/*---------------------------------------------------------------------------*/
+/*                                                                           */
+/*                              Autonomous Task                              */
+/*                                                                           */
+/*  This task is used to control your robot during the autonomous phase of   */
+/*  a VEX Competition.                                                       */
+/*                                                                           */
+/*  You must modify the code to add your own robot specific commands here.   */
+/*---------------------------------------------------------------------------*/
+int autodeploy()
+{
+  wait1Msec(500);
+  prime(100);
+ wait1Msec(200);
+ start(100);
+  return(0);
+}
+int cycleup()
+{
+  while(TOP < 1)
+  {wait1Msec(20);}
+  Convey.stop();
+  return(0);
+}
+int forceuphood()
+{
+   Convey.spin(fwd,100,pct);
+   wait1Msec(200);
+   Convey.spin(directionType::rev,100,pct);
+   waitUntil(TOP == 1);
+   Convey.stop(brakeType::brake);
+  return(0);
+}
+
+
+void autonomous(void) {
+
+     RFDrive.setMaxTorque(.75,torqueUnits::Nm);
+  RRDrive.setMaxTorque(.75,torqueUnits::Nm);
+  LFDrive.setMaxTorque(.75,torqueUnits::Nm);
+  LRDrive.setMaxTorque(.75,torqueUnits::Nm);
+
+  if((auton == 1) || (auton == 4))
+  {
+    Timer1.clear();
+      stopdrive();
+zerodrive();
+  wait1Msec(200);
+
+  prime(100);
+  wait1Msec(200);
+  DriveForward(975,100,100);
+  stopdrive();
+  zerodrive();
+  wait1Msec(200);
+start(100);
+
+leftTurn(-50,50,50);
+stopdrive();
+
+zerodrive();
+ wait1Msec(100);
+ onlyfirstgoal();
+
+    /* RFDrive.setMaxTorque(.8,torqueUnits::Nm);
+  RRDrive.setMaxTorque(.8,torqueUnits::Nm);
+  LFDrive.setMaxTorque(.8,torqueUnits::Nm);
+  LRDrive.setMaxTorque(.8,torqueUnits::Nm);
+    Timer1.clear();
+  
+stopdrive();
+zerodrive();
+  wait1Msec(200);
+  DriveBackward(350,80,80);
+  stopdrive();
+  zerodrive();
+  task deploy(autodeploy);
+  wait1Msec(200);
+rightTurn(34,100,100);
+  RFDrive.stop(brakeType::brake);
+  RRDrive.stop(brakeType::brake);
+  LFDrive.stop(brakeType::brake);
+  LRDrive.stop(brakeType::brake);
+stopdrive();
+
+stopdrive();
+zerodrive();
+ wait1Msec(200);
+ onlyfirstgoal();
+ Convey.stop(brake);*/
+  }
+
+
+
+  if((auton == 2) || (auton == 5))
+  {
+    Timer1.clear();
+      stopdrive();
+zerodrive();
+  wait1Msec(200);
+
+  prime(100);
+  wait1Msec(200);
+  DriveForward(975,60,60);
+  stopdrive();
+  zerodrive();
+  wait1Msec(200);
+
+
+leftTurn(-49,50,50);
+stopdrive();
+start(100);
+zerodrive();
+ wait1Msec(100);
+ firstgoal();
+
+ wait1Msec(200);
+ leftTurn(-186,75,75);
+  RFDrive.stop(brakeType::brake);
+  RRDrive.stop(brakeType::brake);
+  LFDrive.stop(brakeType::brake);
+  LRDrive.stop(brakeType::brake);
+ stopdrive();
+ wait1Msec(200);
+ zerodrive();
+ DriveForward(1100,80,80);
+ stopdrive();
+ zerodrive();
+ wait1Msec(200);
+ rightTurn(-140,75,75);
+ RFDrive.stop(brakeType::brake);
+  RRDrive.stop(brakeType::brake);
+  LFDrive.stop(brakeType::brake);
+  LRDrive.stop(brakeType::brake);
+ stopdrive();
+ wait1Msec(200);
+
+ secondgoal();
+
+    /*Timer1.clear();
+      stopdrive();
+zerodrive();
+  wait1Msec(200);
+    task deploy(autodeploy);
+  DriveBackward(375,60,60);
+  stopdrive();
+  zerodrive();
+
+  wait1Msec(200);
+rightTurn(34,75,75);
+  RFDrive.stop(brakeType::brake);
+  RRDrive.stop(brakeType::brake);
+  LFDrive.stop(brakeType::brake);
+  LRDrive.stop(brakeType::brake);
+stopdrive();
+
+stopdrive();
+zerodrive();
+ wait1Msec(200);
+ firstgoal();
+ wait1Msec(200);
+
+ leftTurn(-70,75,75);
+   RFDrive.stop(brakeType::brake);
+  RRDrive.stop(brakeType::brake);
+  LFDrive.stop(brakeType::brake);
+  LRDrive.stop(brakeType::brake);
+ stopdrive();
+ wait1Msec(200);
+ zerodrive();
+ DriveForward(825,80,80);
+ stopdrive();
+ zerodrive();
+ wait1Msec(200);
+ rightTurn(-20,75,75);
+   RFDrive.stop(brakeType::brake);
+  RRDrive.stop(brakeType::brake);
+  LFDrive.stop(brakeType::brake);
+  LRDrive.stop(brakeType::brake);
+ stopdrive();
+ zerodrive();
+ wait1Msec(200);
+ secondgoal();
+ Convey.stop();*/
+  }
+
+  if(auton == 3)
+  {
+     Timer1.clear();
+      stopdrive();
+zerodrive();
+  wait1Msec(200);
+
+  prime(100);
+  wait1Msec(200);
+  DriveForward(975,60,60);
+  stopdrive();
+  zerodrive();
+  wait1Msec(200);
+
+
+leftTurn(-50,50,50);
+stopdrive();
+start(100);
+zerodrive();
+ wait1Msec(100);
+ firstgoalspecial();
+
+ leftTurn(-184,75,75);
+ stopdrive();
+ wait1Msec(200);
+ zerodrive();
+ DriveForward(1900,100,100);
+ stopdrive();
+ zerodrive();
+ wait1Msec(200);
+   rightTurn(-177,80,80);
+   Convey.stop();
+   
+ //-48
+ stopdrive();
+ 
+stopdrive();
+ zerodrive();
+ wait1Msec(200);
+ thirdgoal();
+
+
+  }
+  if(auton == 6)
+  {
+
+    Timer1.clear();
+      stopdrive();
+zerodrive();
+  wait1Msec(200);
+
+  prime(100);
+  wait1Msec(200);
+  DriveForward(975,60,60);
+  stopdrive();
+  zerodrive();
+  wait1Msec(200);
+
+
+leftTurn(-49,50,50);
+stopdrive();
+start(100);
+zerodrive();
+ wait1Msec(100);
+ firstgoal();
+
+stopdrive();
+zerodrive();
+ wait1Msec(200);
+ rightTurn(-45,40,40);
+  RFDrive.stop(brakeType::brake);
+  RRDrive.stop(brakeType::brake);
+  LFDrive.stop(brakeType::brake);
+  LRDrive.stop(brakeType::brake);
+ stopdrive();
+ wait1Msec(200);
+ DriveBackward(1200,60,60);
+ stopdrive();
+ zerodrive();
+ wait1Msec(200);
+ rightTurn(49,40,40);
+ stopdrive();
+ zerodrive();
+ wait1Msec(200);
+     Lintake.spin(directionType::fwd,100,velocityUnits::pct);
+    Rintake.spin(directionType::fwd,100,velocityUnits::pct);
+ DriveForward(500,60,60);
+ stopdrive();
+ zerodrive();
+ wait1Msec(200);
+ leftTurn(44,20,20);
+ stopdrive();
+ zerodrive();
+ out(100);
+ wait1Msec(200);
+    DriveForwardOntime(300,30,30);
+    wait1Msec(200);
+    rightTurn(54,40,40);
+    wait1Msec(200);
+    DriveForwardOntime(300,40,40);
+    wait1Msec(200);
+    Convey.spin(fwd,100,pct);
+  }
+
+}
+
+/*---------------------------------------------------------------------------*/
+/*                                                                           */
+/*                              User Control Task                            */
+/*                                                                           */
+/*  This task is used to control your robot during the user control phase of */
+/*  a VEX Competition.                                                       */
+/*                                                                           */
+/*  You must modify the code to add your own robot specific commands here.   */
+/*---------------------------------------------------------------------------*/
+
+void usercontrol(void) {
+  // User control code here, inside the loop
+
+  vex::task intakeContrl(intakeControl);
+vex::task controllerlc(controllerlcd);
+vex::task joystcks(joysticks);
+vex::task Puncher(puncherControl);
+
+task::stop(turnPD);
+task::stop(RightDrivePD);
+task::stop(LeftDrivePD);
+
+  
+zerodrive();
+    while(1) {
+       Brain.Screen.printAt(20,20,"Left Drive = %d", leftdrive);
+       Brain.Screen.printAt(20,40,"Right Drive = %d", rightdrive);
+       Brain.Screen.printAt(20,60,"Average = %d", drive);
+  
+    
+             
+		vex::task::sleep(20); 
+    }
+}
+
+//
+// Main will set up the competition functions and callbacks.
+//
+int main() {
+ task adnerew(AndrewButton);
+  Vision20.setLedBrightness(100);
+  Vision20.setLedColor(255, 255, 255);
+
+
+  // Set up callbacks for autonomous and driver control periods.
+  Competition.autonomous(autonomous);
+  Competition.drivercontrol(usercontrol);
+
+  // Run the pre-autonomous function.
+  pre_auton();
+  
+  task turning(turnPD);
+ task rightdriving(RightDrivePD);    
+ task leftdriving(LeftDrivePD);
+  task strafing(StrafePD);
+
+ 
+    while(1) {
+      if(resetmenu == true)
+      {
+        wait1Msec(200);
+        vex::task autonselec(autonselect);
+      }
+    
+      if(top.value(range12bit) < 2700)
+      {
+        TOP = 1;
+      }
+      else
+      {
+        TOP = 0;
+      }
+      if(mid.value(range12bit) < 2300)
+      {
+        MID = 1;
+      }
+      else
+      {
+        MID = 0;
+      }
+      if(bot.value(range12bit) < 2800)
+      {
+        BOT = 1;
+      }
+      else
+      {
+        BOT = 0;
+      }
+      if((Controller1.ButtonUp.pressing()) && (turbo == false))
+      {
+        waitUntil(!Controller1.ButtonUp.pressing());
+        turbo = true;
+      }
+      else if((Controller1.ButtonUp.pressing()) && (turbo == false))
+      {
+        waitUntil(!Controller1.ButtonUp.pressing());
+        turbo = false;
+      }
+       strafe = RRDrive.rotation(rotationUnits::deg) + LFDrive.rotation(rotationUnits::deg);
+      POS =TOP + MID + BOT;
+      punch = Punch.rotation(rotationUnits::rev);
+      rightdrive = RRot.position(deg);
+      leftdrive = LRot.position(deg);
+
+      drive = rightdrive + leftdrive;
+      drive = drive/2;
+    
+    wait(100, msec);
+  }
+}
